@@ -5,6 +5,7 @@ from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
 import time
 import os
+import requests
 from dotenv import load_dotenv
 from supabase import create_client
 
@@ -111,6 +112,27 @@ for item in data:
         final_data.append(element)
 
 supabase = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_KEY"])
+GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "")
+
+
+# === Google Geocoding API ===
+def geocode(address):
+    """透過 Google Geocoding API 將地址轉為經緯度，失敗回傳 (None, None)。"""
+    if not GOOGLE_MAPS_API_KEY:
+        print(f"  [跳過] 未設定 GOOGLE_MAPS_API_KEY")
+        return None, None
+    url = f"https://maps.googleapis.com/maps/api/geocode/json?address={address}&key={GOOGLE_MAPS_API_KEY}"
+    try:
+        resp = requests.get(url, timeout=10)
+        data = resp.json()
+        if data["status"] == "OK":
+            loc = data["results"][0]["geometry"]["location"]
+            return loc["lat"], loc["lng"]
+        else:
+            print(f"  [Geocode] {address} → {data['status']}")
+    except Exception as e:
+        print(f"  [Geocode 錯誤] {address} → {e}")
+    return None, None
 
 insert_data = []
 for detail_data in final_data:
@@ -150,14 +172,31 @@ for item in insert_data:
 # === 找出要刪除的（資料庫有，爬蟲沒有）===
 to_delete = [name for name in db_map if name not in scraped_names]
 
-# === 執行寫入 ===
+# === 新增：查詢經緯度後寫入 ===
 if to_insert:
+    for item in to_insert:
+        lat, lng = geocode(item["address"])
+        item["latitude"] = lat
+        item["longitude"] = lng
+        print(f"  [新增] {item['station_name']} → {lat}, {lng}")
     supabase.table("fpcc_gas_station").insert(to_insert).execute()
     print(f"新增 {len(to_insert)} 筆")
+
+# === 更新：地址有異動才重新查座標 ===
 for item in to_update:
+    db_row = db_map[item["station_name"]]
+    address_changed = item.get("address") != db_row.get("address")
+    if address_changed:
+        lat, lng = geocode(item["address"])
+        item["latitude"] = lat
+        item["longitude"] = lng
+        print(f"  [更新+座標] {item['station_name']} → {lat}, {lng}")
+    else:
+        print(f"  [更新] {item['station_name']}（地址未變，保留原座標）")
     supabase.table("fpcc_gas_station").update(item).eq("station_name", item["station_name"]).execute()
 if to_update:
     print(f"更新 {len(to_update)} 筆")
+
 for name in to_delete:
     supabase.table("fpcc_gas_station").delete().eq("station_name", name).execute()
 if to_delete:

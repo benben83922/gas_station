@@ -111,9 +111,11 @@ def get_all_gas_stations():
 
     result = []
     for s in stations_fpcc:
-        result.append(build_station_item(s, "台塑"))
+        if s.get("latitude") and s.get("longitude"):
+            result.append(build_station_item(s, "台塑"))
     for s in stations_cpc:
-        result.append(build_station_item(s, "中油"))
+        if s.get("latitude") and s.get("longitude"):
+            result.append(build_station_item(s, "中油"))
     return json.dumps(result)
 
 
@@ -246,9 +248,11 @@ def get_nearby_gas_stations():
         result += filter_by_distance(stations_cpc, "中油", user_lat, user_lng, range_km)
     else:
         for s in stations_fpcc:
-            result.append(build_station_item(s, "台塑"))
+            if s.get("latitude") and s.get("longitude"):
+                result.append(build_station_item(s, "台塑"))
         for s in stations_cpc:
-            result.append(build_station_item(s, "中油"))
+            if s.get("latitude") and s.get("longitude"):
+                result.append(build_station_item(s, "中油"))
 
     # 依距離排序
     if has_location and result:
