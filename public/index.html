@@ -243,8 +243,8 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
     <script>
-        // ★ 部署時請改為 Koyeb 後端的網址，例如 "https://your-app.koyeb.app"
-        const API_BASE = "";
+        // 前後端同域名（Vercel），API 路徑前綴為 /api
+        const API_BASE = "/api";
 
         var map = L.map('map').setView([25.0339145, 121.5412233], 13);
         let circle = null;

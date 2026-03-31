@@ -1,6 +1,5 @@
 import re
 from flask import Flask, json, request, jsonify, abort
-from flask_cors import CORS
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import (
@@ -12,9 +11,7 @@ from linebot.models import (
     LocationAction,
     LocationMessage,
 )
-import pandas as pd
 import math
-import requests
 import os
 from supabase import create_client, Client
 from dotenv import load_dotenv
@@ -29,8 +26,6 @@ CHANNEL_SECRET = os.getenv("CHANNEL_SECRET")
 # 建立 Flask 伺服器
 # -------------------------
 app = Flask(__name__)
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
-CORS(app, resources={r"/*": {"origins": ALLOWED_ORIGINS}})  # 自動處理 CORS
 
 # 初始化 LineBotApi 和 WebhookHandler
 line_bot_api = LineBotApi(CHANNEL_ACCESS_TOKEN)
@@ -89,7 +84,7 @@ def format_cpc_address(s):
 # -------------------------
 # API: 查詢所有加油站
 # -------------------------
-@app.route("/gas/all", methods=["GET"])
+@app.route("/api/gas/all", methods=["GET"])
 def get_all_gas_stations():
 
     # 從 Supabase 取得所有加油站
@@ -203,12 +198,11 @@ def filter_by_distance(stations, station_type, user_lat, user_lng, range_km, inc
 # -------------------------
 # API: 查詢附近加油站
 # -------------------------
-@app.route("/gas/nearby", methods=["POST"])
+@app.route("/api/gas/nearby", methods=["POST"])
 def get_nearby_gas_stations():
     data = request.get_json()
     if not data:
         return jsonify({"error": "請提供 JSON"}), 400
-    print(data)
 
     has_location = "lat" in data and "lng" in data
     if has_location:
@@ -224,8 +218,6 @@ def get_nearby_gas_stations():
     # 建立篩選條件
     fpcc_filters = build_filters(fuels, open_type, gas_ss, "fpcc")
     cpc_filters = build_filters(fuels, open_type, gas_ss, "cpc")
-
-    print("fuels：", fuels, "brand：", brand, "open_type：", open_type)
 
     # 查詢對應品牌
     stations_fpcc, stations_cpc = fetch_all_stations(fpcc_filters, cpc_filters, brand)
@@ -247,48 +239,13 @@ def get_nearby_gas_stations():
         return jsonify({"count": len(result), "data": result})
 
 
-# 載入所有加油站資料
-def load_gas_stations():
-    """載入並合併中油和台塑加油站資料。"""
-    stations_1, stations_2 = fetch_all_stations()
-
-    all_stations = []
-
-    for i in stations_1:
-        all_stations.append(
-            {
-                "station_name": i["station_name"],
-                "address": i["address"],
-                "lng": i["longitude"],
-                "lat": i["latitude"],
-                "provider": "CPC",
-            }
-        )
-    for i in stations_2:
-        all_stations.append(
-            {
-                "station_name": i["station_name"],
-                "address": i["address"],
-                "lng": i["longitude"],
-                "lat": i["latitude"],
-                "provider": "FPCC",
-            }
-        )
-    df = pd.DataFrame(all_stations)
-
-    return df
-
-
 # Line Bot 的 Webhook 接收路徑
-@app.route("/callback", methods=["GET", "POST"])
+@app.route("/api/callback", methods=["GET", "POST"])
 def callback():
     if request.method == "GET":
-        # 這是 Line 在 Developers Console 上點擊 "Verify" 時發送的請求
-        # 只需要簡單回傳 'OK'，代表連線成功
         return "OK"
 
     elif request.method == "POST":
-        # 這是使用者發送訊息時，Line 平台發送的實際事件請求
         signature = request.headers.get("X-Line-Signature")
         body = request.get_data(as_text=True)
         app.logger.info("Request body: " + body)
@@ -307,59 +264,39 @@ def callback():
 # 處理訊息事件
 @handler.add(MessageEvent, message=TextMessage)
 def handle_text_message(event):
-    # 注意：這裡的函數名稱應與你註冊到 handler 的一致，我改回 handle_text_message
     user_message = event.message.text
 
     if user_message == "附近加油站":
-        # --- 修正點 1: 確保只呼叫一次 reply_message ---
-        # 建立 Location Action 按鈕
         location_button = QuickReplyButton(action=LocationAction(label="分享目前位置"))
-
-        # 建立 Quick Reply 容器
         quick_reply = QuickReply(items=[location_button])
-
-        # 發送訊息：要求用戶點擊按鈕分享位置
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(
                 text="好的，請點擊下方「分享目前位置」按鈕，我才能為您查詢 1 公里內的附近加油站。",
-                quick_reply=quick_reply,  # 將 Quick Reply 附加到訊息上
+                quick_reply=quick_reply,
             ),
         )
     elif user_message == "即時油價":
         response = get_gas_price()
-        # 回覆一般文字
         if isinstance(response, str):
             reply_message = TextSendMessage(text=response)
         else:
-            # 如果是 TextSendMessage 物件 (成功獲取的油價)，則直接使用
             reply_message = response
-
-        # 3. 使用正確的 reply_message 變數來回覆用戶
-        # --- 關鍵修正點：使用 reply_message 變數 ---
         line_bot_api.reply_message(event.reply_token, reply_message)
 
 
 # 處理位置事件
 @handler.add(MessageEvent, message=LocationMessage)
 def handle_location_message(event):
-    # 從 event.message 中取出經緯度等資訊
     latitude = event.message.latitude
     longitude = event.message.longitude
-    title = event.message.title
-    # address = event.message.address # 這個通常是選填，我們先用 Lat/Lon 查詢
 
-    # 呼叫查詢函數，並直接取得 LINE 格式的字串結果
     result_text = get_nearby_gas_stations_for_line_bot(latitude, longitude)
-
-    # --- 修正點 2: 使用查詢結果回覆用戶 ---
-    # 因為這個處理過程可能較久，我們假設 get_nearby_gas_stations_for_line_bot 已經在 30 秒內完成
     line_bot_api.reply_message(event.reply_token, TextSendMessage(text=result_text))
 
 
-# --- 修正點 2: 將回傳值改成 LINE Bot 可用的文字訊息 ---
 def get_nearby_gas_stations_for_line_bot(user_lat, user_lng):
-    range_km = float(1.0)  # 預設 1 公里
+    range_km = float(1.0)
     result = []
 
     try:
@@ -367,21 +304,14 @@ def get_nearby_gas_stations_for_line_bot(user_lat, user_lng):
         result += filter_by_distance(stations_fpcc, "台塑", user_lat, user_lng, range_km, include_gas_types=True)
         result += filter_by_distance(stations_cpc, "中油", user_lat, user_lng, range_km, include_gas_types=True)
 
-        # 依距離排序
         if result:
             result.sort(key=lambda x: x["distance_km"])
 
-            # ---------------------------
-            # --- 最終輸出格式化 (重點) ---
-            # ---------------------------
             output_lines = [
                 f"⛽️ 查詢到您附近 {range_km} 公里內共有 {len(result)} 個加油站："
             ]
 
-            # 只顯示最接近的 5 個，避免 Line 訊息過長
             for i, station in enumerate(result[:5]):
-
-                # 建立導航連結
                 map_link = create_google_maps_url(
                     station["lat"], station["lng"], station["address"]
                 )
@@ -398,8 +328,8 @@ def get_nearby_gas_stations_for_line_bot(user_lat, user_lng):
                 else:
                     output_lines.append(f"營業時間：{station['open_time']}")
                 output_lines.append(f"距離: {station['distance_km']} 公里")
-                output_lines.append(f"油品: {station['gas_types']}")  # 輸出油品資訊
-                output_lines.append(f"📍 導航: {navigation_link}")  # 輸出導航連結
+                output_lines.append(f"油品: {station['gas_types']}")
+                output_lines.append(f"📍 導航: {navigation_link}")
 
             if len(result) > 5:
                 output_lines.append(f"\n... 尚有 {len(result) - 5} 個未顯示。")
@@ -418,7 +348,6 @@ def format_gas_types(station):
     """將加油站資料庫中的 0/1 欄位轉換成油品販售清單文字"""
     gas_list = []
 
-    # 油品對應的中文名稱
     gas_map = {
         "gas_98": "98 無鉛",
         "gas_95": "95 無鉛",
@@ -427,9 +356,7 @@ def format_gas_types(station):
         "gas_ss": "自助加油",
     }
 
-    # 檢查每個油品欄位
     for key, name in gas_map.items():
-        # 假設資料庫回傳的 s[key] 是 1 或 0 (int 或 str)
         if station.get(key) in (1, "1", True):
             gas_list.append(name)
 
@@ -451,29 +378,19 @@ def get_gas_price():
     try:
         price_data = query_table("gas_price")
 
-        # 檢查是否查到資料
         if not price_data:
             return "很抱歉，目前資料庫中沒有油價資訊。"
 
-        # ---------------------------
-        # 數據處理與格式化
-        # ---------------------------
-
-        # 創建一個字典來存儲不同油品公司的價格
         formatted_prices = {}
         update_date = None
 
         for p in price_data:
-            company_type = p.get("brand", "Unknown")  # 假設有 'type' 欄位
-            print(company_type)
-            # 將最新更新日期記錄下來 (假設所有記錄的日期都一樣，取第一個即可)
+            company_type = p.get("brand", "Unknown")
             if update_date is None and "reptile_time" in p:
                 update_date = p["reptile_time"]
 
-            # 建立該公司的價格清單
             price_list = []
 
-            # 使用 .get() 來安全取值，並將價格格式化為字串
             if p.get("gas_98") is not None:
                 price_list.append(f"98 無鉛: {p['gas_98']} 元")
             if p.get("gas_95") is not None:
@@ -485,52 +402,24 @@ def get_gas_price():
 
             formatted_prices[company_type] = "\n".join(price_list)
 
-        # ---------------------------
-        # 組織最終回覆訊息
-        # ---------------------------
-
-        # 標題行
         message_lines = ["⛽️ 台灣即時油價查詢 ⛽️", "--------------------------"]
 
         if update_date:
             message_lines.append(f"📅 更新日期: {update_date}")
             message_lines.append("--------------------------")
 
-        # 加入中油價格
         if "cpc" in formatted_prices:
             message_lines.append("【中油】:")
             message_lines.append(formatted_prices["cpc"])
             message_lines.append("")
 
-        # 加入台塑價格
         if "fpcc" in formatted_prices:
             message_lines.append("【台塑】:")
             message_lines.append(formatted_prices["fpcc"])
             message_lines.append("")
 
-        # 組裝成一個大字串
         final_text = "\n".join(message_lines)
-
-        # 回傳 LINE SDK 的訊息物件
         return TextSendMessage(text=final_text)
     except Exception as e:
         print(f"Gas price query error: {e}")
         return "查詢油價時發生錯誤，請稍後再試。"
-
-
-# -------------------------
-# API 根目錄測試
-# -------------------------
-@app.route("/", methods=["GET"])
-def root():
-    return jsonify({"msg": "加油站 API 運行中"})
-
-
-# -------------------------
-# 主程式
-# -------------------------
-if __name__ == "__main__":
-    # 開發測試用（正式環境由 gunicorn 啟動，不會進入此區塊）
-    app.run(
-        host="0.0.0.0", port=5000, debug=os.getenv("FLASK_DEBUG", "false").lower() == "true"
-    )
