@@ -1,0 +1,9 @@
+flask
+flask-cors
+geopy
+line-bot-sdk
+pandas
+requests
+supabase
+python-dotenv
+gunicorn

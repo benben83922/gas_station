@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>加油站查詢地圖</title>
+    <!-- <h1>媽我成功啦</h1> -->
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+
+    <style>
+        /* ----------------- 全局 ----------------- */
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: "Segoe UI", sans-serif;
+            margin: 0;
+            background: #1f1f2e;
+            color: #f0f0f0;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 20px auto;
+            padding: 20px;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 20px;
+            font-weight: 600;
+            color: #ffffff;
+            text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.5);
+        }
+
+        /* ----------------- 控制面板 ----------------- */
+        #controls {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            padding: 20px;
+            background: #2a2a3c;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            margin-bottom: 20px;
+        }
+
+        .control-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            justify-content: flex-start;
+            align-items: center;
+        }
+
+        #controls label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 500;
+        }
+
+        #controls select,
+        #controls input[type="number"] {
+            padding: 6px 12px;
+            border-radius: 8px;
+            border: none;
+            outline: none;
+            background: #3a3a50;
+            color: #f0f0f0;
+        }
+
+        #controls button {
+            padding: 10px 20px;
+            background: linear-gradient(135deg, #6a11cb, #2575fc);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: 0.3s;
+        }
+
+        #controls button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+        }
+
+        .checkbox-group {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .checkbox-group label {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            accent-color: #6a11cb;
+        }
+
+        /* ----------------- 地圖 ----------------- */
+        #map {
+            height: 500px;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+            margin-bottom: 20px;
+        }
+
+        /* ----------------- 表格 ----------------- */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            border-radius: 12px;
+            overflow: hidden;
+            background: #2a2a3c;
+            color: #f0f0f0;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+        }
+
+        th {
+            background: #3a3a50;
+            color: #ffffff;
+            font-weight: 500;
+            padding: 12px;
+            text-align: center;
+        }
+
+        td {
+            padding: 10px;
+            text-align: center;
+            border-bottom: 1px solid #444466;
+        }
+
+        tr:hover {
+            background: #3c3c5a;
+        }
+
+        /* ----------------- 響應式 ----------------- */
+        @media (max-width: 768px) {
+            .control-row {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            #controls label {
+                width: 100%;
+            }
+
+            #controls button {
+                width: 100%;
+            }
+
+            .checkbox-group {
+                justify-content: flex-start;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>加油站查詢地圖</h1>
+
+        <!-- 控制面板 -->
+        <div id="controls">
+            <div class="control-row">
+                <label>搜尋範圍 (公里):
+                    <input type="number" id="range" value="1" step="0.1">
+                </label>
+                <div class="checkbox-group">
+                    <label><input type="checkbox" id="fuel92" checked> 92</label>
+                    <label><input type="checkbox" id="fuel95" checked> 95</label>
+                    <label><input type="checkbox" id="fuel98" checked> 98</label>
+                    <label><input type="checkbox" id="diesel" checked> 超級柴油</label>
+                </div>
+                <label>
+                    油商：
+                    <select id="brand">
+                        <option value="all">全部</option>
+                        <option value="cpc">中油</option>
+                        <option value="fpcc">台塑</option>
+                    </select>
+                </label>
+                <label>
+                    營業模式：
+                    <select id="openType">
+                        <option value="all">全部</option>
+                        <option value="24h">24小時營業</option>
+                        <option value="not24h">非24小時營業</option>
+                    </select>
+                </label>
+                <label>
+                    自助加油：
+                    <select id="gas_ss">
+                        <option value="all">不選擇</option>
+                        <option value="yes">有自助加油</option>
+                        <option value="no">無自助加油</option>
+                    </select>
+                </label>
+            </div>
+
+            <div class="control-row">
+                <button id="getLocationBtn">搜尋加油站（含範圍）</button>
+                <button id="get_gas_station">搜尋加油站（不含範圍）</button>
+                <button id="btn_request">取得所有加油站列表</button>
+            </div>
+        </div>
+
+        <!-- 地圖 -->
+        <div id="map"></div>
+
+        <!-- 表格 -->
+        <table>
+            <thead>
+                <tr>
+                    <th>油商</th>
+                    <th>站名</th>
+                    <th>地址</th>
+                    <th>電話</th>
+                    <th>營業時間</th>
+                    <th>98</th>
+                    <th>95</th>
+                    <th>92</th>
+                    <th>柴油</th>
+                    <th>自助</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script>
+        // ★ 部署時請改為 Koyeb 後端的網址，例如 "https://your-app.koyeb.app"
+        const API_BASE = "";
+
+        var map = L.map('map').setView([25.0339145, 121.5412233], 13);
+        let circle = null;
+
+        // 點擊地圖顯示經緯度
+        let clickMarker = null;
+        map.on('click', function (e) {
+            const cli_lat = e.latlng.lat;
+            const cli_lng = e.latlng.lng;
+
+            if (clickMarker) {
+                map.removeLayer(clickMarker);
+            }
+
+            clickMarker = L.marker([cli_lat, cli_lng]).addTo(map).openPopup();
+        });
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+
+        let layerGroup = null;
+        let arrLayers = [];
+
+        //取得所有加油站列表
+        document.querySelector('button#btn_request').addEventListener('click', function () {
+            if (circle) {
+                map.removeLayer(circle);
+                circle = null;
+            }
+            if (clickMarker) {
+                map.removeLayer(clickMarker);
+                clickMarker = null;
+            }
+
+            fetch(API_BASE + '/gas/all', { method: "GET" })
+                .then(response => response.json())
+                .then(arr => {
+                    if (layerGroup != null) {
+                        layerGroup.clearLayers();
+                        map.removeLayer(layerGroup);
+                        layerGroup = null;
+                        arrLayers = [];
+                    }
+
+                    let tbody = document.querySelector('table > tbody');
+                    tbody.innerHTML = '';
+
+                    for (let o of arr) {
+                        let tr = document.createElement("tr");
+                        tr.innerHTML = `<td>${o['type']}</td>
+                                        <td>${o['name']}</td>
+                                        <td>${o['address']}</td>
+                                        <td>${o['phone']}</td>
+                                        <td>${o['open_time']}</td>
+                                        <td>${o['gas_98'] == 1 ? 'V' : ''}</td>
+                                        <td>${o['gas_95'] == 1 ? 'V' : ''}</td>
+                                        <td>${o['gas_92'] == 1 ? 'V' : ''}</td>
+                                        <td>${o['gas_diesel'] == 1 ? 'V' : ''}</td>
+                                        <td>${o['gas_ss'] == 1 ? 'V' : ''}</td>`;
+                        tbody.appendChild(tr);
+
+                        const customIcon_cpc = L.icon({
+                            iconUrl: './image/cpc_gas_removebg.png',
+                            iconSize: [30, 30],
+                            iconAnchor: [20, 40],
+                            popupAnchor: [0, -40]
+                        });
+
+                        const customIcon_fpcc = L.icon({
+                            iconUrl: './image/fpcc_gas_removebg.png',
+                            iconSize: [30, 30],
+                            iconAnchor: [20, 40],
+                            popupAnchor: [0, -40]
+                        });
+
+                        let marker;
+                        if (o['type'] == "台塑") {
+                            marker = L.marker([o['lat'], o['lng']], { icon: customIcon_fpcc })
+                                .bindPopup(`<h3>${o['name']}<h3>地址：${o['address']}<br>電話：${o['phone']}<br>98汽油：${o['gas_98'] == 1 ? 'V' : 'X'}<br>95汽油：${o['gas_95'] == 1 ? 'V' : 'X'}<br>92汽油：${o['gas_92'] == 1 ? 'V' : 'X'}<br>超級柴油：${o['gas_diesel'] == 1 ? 'V' : 'X'}<br>自助加油：${o['gas_ss'] == 1 ? 'V' : 'X'}<br>營業時間：${o['open_time']}<br><a href="https://www.google.com/maps/dir/?api=1&destination=${o['address']}&travelmode=driving" target="_blank">使用Google Maps導航</a>`);
+                            marker.bindTooltip('台塑');
+                        } else if (o['type'] == "中油") {
+                            marker = L.marker([o['lat'], o['lng']], { icon: customIcon_cpc })
+                                .bindPopup(`<h3>${o['name']}<h3>地址：${o['address']}<br>電話：${o['phone']}<br>98汽油：${o['gas_98'] == 1 ? 'V' : 'X'}<br>95汽油：${o['gas_95'] == 1 ? 'V' : 'X'}<br>92汽油：${o['gas_92'] == 1 ? 'V' : 'X'}<br>超級柴油：${o['gas_diesel'] == 1 ? 'V' : 'X'}<br>自助加油：${o['gas_ss'] == 1 ? 'V' : 'X'}<br>營業時間：${o['open_time']}<br><a href="https://www.google.com/maps/dir/?api=1&destination=${o['address']}&travelmode=driving" target="_blank">使用Google Maps導航</a>`);
+                            marker.bindTooltip('中油');
+                        }
+
+                        marker.addEventListener('click', () => console.log(o));
+                        arrLayers.push(marker);
+                    }
+
+                    layerGroup = L.layerGroup(arrLayers);
+                    layerGroup.addTo(map);
+                });
+        });
+
+        //取得含篩選條件的加油站列表
+        const btn = document.getElementById("getLocationBtn");
+        btn.addEventListener("click", () => {
+            if (!clickMarker) {
+                alert("請先在地圖上點擊以選擇位置！");
+                return;
+            }
+
+            if (circle) {
+                map.removeLayer(circle);
+                circle = null;
+            }
+
+            if (layerGroup) {
+                map.removeLayer(layerGroup);
+            }
+            arrLayers = [];
+
+            const selectedFuels = [];
+            if (document.getElementById("fuel92").checked) selectedFuels.push("92");
+            if (document.getElementById("fuel95").checked) selectedFuels.push("95");
+            if (document.getElementById("fuel98").checked) selectedFuels.push("98");
+            if (document.getElementById("diesel").checked) selectedFuels.push("diesel");
+            if (document.getElementById("fuel92").checked === false &&
+                document.getElementById("fuel95").checked === false &&
+                document.getElementById("fuel98").checked === false &&
+                document.getElementById("diesel").checked === false) {
+                alert("請至少選擇一種油品！");
+                return;
+            }
+
+            const brand = document.getElementById("brand").value;
+            const openType = document.getElementById("openType").value;
+            const gas_ss = document.getElementById("gas_ss").value;
+
+            navigator.geolocation.getCurrentPosition(async () => {
+                const lat = clickMarker.getLatLng().lat;
+                const lng = clickMarker.getLatLng().lng;
+                const range_km = parseFloat(document.getElementById("range").value);
+
+                circle = L.circle([lat, lng], {
+                    radius: range_km * 1000,
+                    dashArray: '8, 6',
+                    weight: 2,
+                    color: 'red',
+                    fillColor: '#ff9999',
+                    fillOpacity: 0.2
+                }).addTo(map);
+                // alert("selectFuels：" + selectedFuels + ", brand：" + brand + ", opentype：" + openType);
+                try {
+                    const res = await fetch(API_BASE + "/gas/nearby", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ lat, lng, range_km, selectedFuels, brand, openType, gas_ss })
+                    });
+                    if (!res.ok) throw new Error("API 呼叫失敗");
+
+                    const data = await res.json();
+                    let tbody = document.querySelector('table > tbody');
+                    tbody.innerHTML = "";
+
+                    if (data.count === 0) {
+                        tbody.innerHTML = "<li>範圍內沒有加油站</li>";
+                    } else {
+                        data.data.forEach(station => {
+                            let tr = document.createElement("tr");
+                            tr.innerHTML = `<td>${station.type}</td>
+                                            <td>${station.name}</td>
+                                            <td>${station.address}</td>
+                                            <td>${station.phone}</td>
+                                            <td>${station.open_time}</td>
+                                            <td>${station.gas_98 == 1 ? 'V' : ''}</td>
+                                            <td>${station.gas_95 == 1 ? 'V' : ''}</td>
+                                            <td>${station.gas_92 == 1 ? 'V' : ''}</td>
+                                            <td>${station.gas_diesel == 1 ? 'V' : ''}</td>
+                                            <td>${station.gas_ss == 1 ? 'V' : ''}</td>`;
+                            tbody.appendChild(tr);
+
+                            const customIcon_cpc = L.icon({
+                                iconUrl: './image/cpc_gas_removebg.png',
+                                iconSize: [30, 30],
+                                iconAnchor: [20, 40],
+                                popupAnchor: [0, -40]
+                            });
+
+                            const customIcon_fpcc = L.icon({
+                                iconUrl: './image/fpcc_gas_removebg.png',
+                                iconSize: [30, 30],
+                                iconAnchor: [20, 40],
+                                popupAnchor: [0, -40]
+                            });
+
+                            let marker;
+                            if (station.type == "台塑") {
+                                marker = L.marker([station.lat, station.lng], { icon: customIcon_fpcc })
+                                    .bindPopup(`<h3>${station.name}<h3>地址：${station.address}<br>電話：${station.phone}<br>98汽油：${station.gas_98 == 1 ? 'V' : 'X'}<br>95汽油：${station.gas_95 == 1 ? 'V' : 'X'}<br>92汽油：${station.gas_92 == 1 ? 'V' : 'X'}<br>超級柴油：${station.gas_diesel == 1 ? 'V' : 'X'}<br>自助加油：${station.gas_ss == 1 ? 'V' : 'X'}<br>營業時間：${station.open_time}<br><a href="https://www.google.com/maps/dir/?api=1&destination=${station.address}&travelmode=driving" target="_blank">使用Google Maps導航</a>`);
+                                marker.bindTooltip('台塑');
+                            } else if (station.type == "中油") {
+                                marker = L.marker([station.lat, station.lng], { icon: customIcon_cpc })
+                                    .bindPopup(`<h3>${station.name}<h3>地址：${station.address}<br>電話：${station.phone}<br>98汽油：${station.gas_98 == 1 ? 'V' : 'X'}<br>95汽油：${station.gas_95 == 1 ? 'V' : 'X'}<br>92汽油：${station.gas_92 == 1 ? 'V' : 'X'}<br>超級柴油：${station.gas_diesel == 1 ? 'V' : 'X'}<br>自助加油：${station.gas_ss == 1 ? 'V' : 'X'}<br>營業時間：${station.open_time}<br><a href="https://www.google.com/maps/dir/?api=1&destination=${station.address}&travelmode=driving" target="_blank">使用Google Maps導航</a>`);
+                                marker.bindTooltip('中油');
+                            }
+
+                            marker.addEventListener('click', () => console.log(station));
+                            arrLayers.push(marker);
+                        });
+
+                        layerGroup = L.layerGroup(arrLayers);
+                        layerGroup.addTo(map);
+                    }
+
+                } catch (err) {
+                    if (err instanceof TypeError) {
+                        alert("伺服器沒有回應，後端可能尚未啟動！");
+                    } else {
+                        alert("發生錯誤：" + err.message);
+                    }
+                }
+            }, (err) => {
+                alert("定位失敗: " + err.message);
+            });
+        });
+
+        const btn_no_distance = document.getElementById("get_gas_station");
+        btn_no_distance.addEventListener("click", () => {
+            if (circle) {
+                map.removeLayer(circle);
+                circle = null;
+            }
+            if (layerGroup) {
+                map.removeLayer(layerGroup);
+            }
+            arrLayers = [];
+            const selectedFuels = [];
+            if (document.getElementById("fuel92").checked) selectedFuels.push("92");
+            if (document.getElementById("fuel95").checked) selectedFuels.push("95");
+            if (document.getElementById("fuel98").checked) selectedFuels.push("98");
+            if (document.getElementById("diesel").checked) selectedFuels.push("diesel");
+            if (document.getElementById("fuel92").checked === false &&
+                document.getElementById("fuel95").checked === false &&
+                document.getElementById("fuel98").checked === false &&
+                document.getElementById("diesel").checked === false) {
+                alert("請至少選擇一種油品！");
+                return;
+            }
+
+            const brand = document.getElementById("brand").value;
+            const openType = document.getElementById("openType").value;
+            const gas_ss = document.getElementById("gas_ss").value;
+
+            navigator.geolocation.getCurrentPosition(async () => {
+                try {
+                    const res = await fetch(API_BASE + "/gas/nearby", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ selectedFuels, brand, openType, gas_ss })
+                    });
+                    if (!res.ok) throw new Error("API 呼叫失敗");
+
+                    const data = await res.json();
+                    let tbody = document.querySelector('table > tbody');
+                    tbody.innerHTML = "";
+
+                    if (data.count === 0) {
+                        tbody.innerHTML = "<li>範圍內沒有加油站</li>";
+                    } else {
+                        data.data.forEach(station => {
+                            let tr = document.createElement("tr");
+                            tr.innerHTML = `<td>${station.type}</td>
+                                            <td>${station.name}</td>
+                                            <td>${station.address}</td>
+                                            <td>${station.phone}</td>
+                                            <td>${station.open_time}</td>
+                                            <td>${station.gas_98 == 1 ? 'V' : ''}</td>
+                                            <td>${station.gas_95 == 1 ? 'V' : ''}</td>
+                                            <td>${station.gas_92 == 1 ? 'V' : ''}</td>
+                                            <td>${station.gas_diesel == 1 ? 'V' : ''}</td>
+                                            <td>${station.gas_ss == 1 ? 'V' : ''}</td>`;
+                            tbody.appendChild(tr);
+
+                            const customIcon_cpc = L.icon({
+                                iconUrl: './image/cpc_gas_removebg.png',
+                                iconSize: [30, 30],
+                                iconAnchor: [20, 40],
+                                popupAnchor: [0, -40]
+                            });
+
+                            const customIcon_fpcc = L.icon({
+                                iconUrl: './image/fpcc_gas_removebg.png',
+                                iconSize: [30, 30],
+                                iconAnchor: [20, 40],
+                                popupAnchor: [0, -40]
+                            });
+
+                            let marker;
+                            if (station.type == "台塑") {
+                                marker = L.marker([station.lat, station.lng], { icon: customIcon_fpcc })
+                                    .bindPopup(`<h3>${station.name}<h3>地址：${station.address}<br>電話：${station.phone}<br>98汽油：${station.gas_98 == 1 ? 'V' : 'X'}<br>95汽油：${station.gas_95 == 1 ? 'V' : 'X'}<br>92汽油：${station.gas_92 == 1 ? 'V' : 'X'}<br>超級柴油：${station.gas_diesel == 1 ? 'V' : 'X'}<br>自助加油：${station.gas_ss == 1 ? 'V' : 'X'}<br>營業時間：${station.open_time}<br><a href="https://www.google.com/maps/dir/?api=1&destination=${station.address}&travelmode=driving" target="_blank">使用Google Maps導航</a>`);
+                                marker.bindTooltip('台塑');
+                            } else if (station.type == "中油") {
+                                marker = L.marker([station.lat, station.lng], { icon: customIcon_cpc })
+                                    .bindPopup(`<h3>${station.name}<h3>地址：${station.address}<br>電話：${station.phone}<br>98汽油：${station.gas_98 == 1 ? 'V' : 'X'}<br>95汽油：${station.gas_95 == 1 ? 'V' : 'X'}<br>92汽油：${station.gas_92 == 1 ? 'V' : 'X'}<br>超級柴油：${station.gas_diesel == 1 ? 'V' : 'X'}<br>自助加油：${station.gas_ss == 1 ? 'V' : 'X'}<br>營業時間：${station.open_time}<br><a href="https://www.google.com/maps/dir/?api=1&destination=${station.address}&travelmode=driving" target="_blank">使用Google Maps導航</a>`);
+                                marker.bindTooltip('中油');
+                            }
+
+                            marker.addEventListener('click', () => console.log(station));
+                            arrLayers.push(marker);
+                        });
+
+                        layerGroup = L.layerGroup(arrLayers);
+                        layerGroup.addTo(map);
+                    }
+
+                } catch (err) {
+                    if (err instanceof TypeError) {
+                        alert("伺服器沒有回應，後端可能尚未啟動！");
+                    } else {
+                        alert("發生錯誤：" + err.message);
+                    }
+                }
+            }, (err) => {
+                alert("定位失敗: " + err.message);
+            });
+
+        });
+    </script>
+</body>
+
+</html>
