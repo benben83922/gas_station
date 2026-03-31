@@ -18,22 +18,41 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# 替換成您在步驟一取得的金鑰
-CHANNEL_ACCESS_TOKEN = os.getenv("CHANNEL_ACCESS_TOKEN")
-CHANNEL_SECRET = os.getenv("CHANNEL_SECRET")
-
 # -------------------------
 # 建立 Flask 伺服器
 # -------------------------
 app = Flask(__name__)
 
-# 初始化 LineBotApi 和 WebhookHandler
-line_bot_api = LineBotApi(CHANNEL_ACCESS_TOKEN)
-handler = WebhookHandler(CHANNEL_SECRET)
+# -------------------------
+# 延遲初始化（避免環境變數未設定時模組載入就崩潰）
+# -------------------------
+line_bot_api = None
+handler = None
+supabase_client = None
 
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-supabase_client: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+def get_line_bot_api():
+    global line_bot_api
+    if line_bot_api is None:
+        line_bot_api = LineBotApi(os.getenv("CHANNEL_ACCESS_TOKEN"))
+    return line_bot_api
+
+
+def get_handler():
+    global handler
+    if handler is None:
+        handler = WebhookHandler(os.getenv("CHANNEL_SECRET"))
+        _register_line_handlers(handler)
+    return handler
+
+
+def get_supabase():
+    global supabase_client
+    if supabase_client is None:
+        supabase_client = create_client(
+            os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY")
+        )
+    return supabase_client
 
 
 # -------------------------
@@ -43,7 +62,7 @@ def query_table(table_name, filters=None):
     """查詢 Supabase 表，回傳 list[dict]。
     filters: list of (method, args) e.g. [("neq", ("gas_92", 0)), ("eq", ("gas_ss", "1"))]
     """
-    query = supabase_client.table(table_name).select("*")
+    query = get_supabase().table(table_name).select("*")
     if filters:
         for method, args in filters:
             query = getattr(query, method)(*args)
@@ -251,7 +270,7 @@ def callback():
         app.logger.info("Request body: " + body)
 
         try:
-            handler.handle(body, signature)
+            get_handler().handle(body, signature)
         except InvalidSignatureError:
             print(
                 "Invalid signature. Please check your channel access token/channel secret."
@@ -261,38 +280,39 @@ def callback():
         return "OK"
 
 
-# 處理訊息事件
-@handler.add(MessageEvent, message=TextMessage)
-def handle_text_message(event):
-    user_message = event.message.text
+# -------------------------
+# LINE Bot 事件處理（延遲註冊）
+# -------------------------
+def _register_line_handlers(h):
+    @h.add(MessageEvent, message=TextMessage)
+    def handle_text_message(event):
+        user_message = event.message.text
 
-    if user_message == "附近加油站":
-        location_button = QuickReplyButton(action=LocationAction(label="分享目前位置"))
-        quick_reply = QuickReply(items=[location_button])
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(
-                text="好的，請點擊下方「分享目前位置」按鈕，我才能為您查詢 1 公里內的附近加油站。",
-                quick_reply=quick_reply,
-            ),
-        )
-    elif user_message == "即時油價":
-        response = get_gas_price()
-        if isinstance(response, str):
-            reply_message = TextSendMessage(text=response)
-        else:
-            reply_message = response
-        line_bot_api.reply_message(event.reply_token, reply_message)
+        if user_message == "附近加油站":
+            location_button = QuickReplyButton(action=LocationAction(label="分享目前位置"))
+            quick_reply = QuickReply(items=[location_button])
+            get_line_bot_api().reply_message(
+                event.reply_token,
+                TextSendMessage(
+                    text="好的，請點擊下方「分享目前位置」按鈕，我才能為您查詢 1 公里內的附近加油站。",
+                    quick_reply=quick_reply,
+                ),
+            )
+        elif user_message == "即時油價":
+            response = get_gas_price()
+            if isinstance(response, str):
+                reply_message = TextSendMessage(text=response)
+            else:
+                reply_message = response
+            get_line_bot_api().reply_message(event.reply_token, reply_message)
 
+    @h.add(MessageEvent, message=LocationMessage)
+    def handle_location_message(event):
+        latitude = event.message.latitude
+        longitude = event.message.longitude
 
-# 處理位置事件
-@handler.add(MessageEvent, message=LocationMessage)
-def handle_location_message(event):
-    latitude = event.message.latitude
-    longitude = event.message.longitude
-
-    result_text = get_nearby_gas_stations_for_line_bot(latitude, longitude)
-    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=result_text))
+        result_text = get_nearby_gas_stations_for_line_bot(latitude, longitude)
+        get_line_bot_api().reply_message(event.reply_token, TextSendMessage(text=result_text))
 
 
 def get_nearby_gas_stations_for_line_bot(user_lat, user_lng):
