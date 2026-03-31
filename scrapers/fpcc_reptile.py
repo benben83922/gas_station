@@ -2,6 +2,8 @@ from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 import time
 import os
@@ -46,8 +48,9 @@ driver.execute_cdp_cmd("Emulation.setDeviceMetricsOverride", {
     "deviceScaleFactor": 1, "mobile": False
 })
 driver.get("https://www.fpcc.com.tw/tw/events/stations")
-time.sleep(5)
-country_option = driver.find_element(By.NAME, "scity")
+country_option = WebDriverWait(driver, 20).until(
+    EC.presence_of_element_located((By.NAME, "scity"))
+)
 options = country_option.find_elements(By.TAG_NAME, "option")
 city_list = [opt.text for opt in options]
 data = []
