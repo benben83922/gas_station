@@ -49,10 +49,10 @@ driver.get("https://www.fpcc.com.tw/tw/events/stations")
 time.sleep(5)
 country_option = driver.find_element(By.NAME, "scity")
 options = country_option.find_elements(By.TAG_NAME, "option")
+city_list = [opt.text for opt in options]
 data = []
-for opt in options:
+for city in city_list:
     city_data = []
-    city = opt.text
     url = f"https://www.fpcc.com.tw/tw/events/stations/{city}/0/0/0"
     # 開新分頁
     driver.execute_script(f"window.open('{url}');")
